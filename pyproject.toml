@@ -1,0 +1,84 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "podest"
+version = "0.1.0"
+description = "Point density statistical evaluation for 2D graphs"
+authors = [{name = "Ivana Mihalek", email = "ivana.mihalek@gmail.com"}]
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.9"
+keywords = ["statistics", "density", "2d-analysis", "spatial-analysis"]
+
+dependencies = [
+    "dask>=2021.0.0",
+    "numpy>=1.19.0",
+    "scipy>=1.5.0"
+]
+
+# Optional dependencies for development and testing
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "pytest-cov>=2.0",
+    "black>=21.0",
+    "isort>=5.0",
+    "flake8>=3.8",
+    "mypy>=0.800"
+]
+test = [
+    "pytest>=6.0",
+    "pytest-cov>=2.0"
+]
+docs = [
+    "sphinx>=4.0",
+    "sphinx-rtd-theme>=1.0"
+]
+progress = [
+    "tqdm>=4.50.0"  # For progress bars in parallel computation
+]
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Scientific/Engineering :: Visualization",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/dogmaticcentral/podest"
+Repository = "https://github.com/dogmaticcentral/podest"
+Issues = "https://github.com/dogmaticcentral/podest/issues"
+Documentation = "https://github.com/dogmaticcentral/podest#readme"
+
+# Tool configurations
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q --strict-markers --strict-config"
+testpaths = [
+    "tests",
+]
+
+[tool.black]
+line-length = 88
+target-version = ['py39']
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
