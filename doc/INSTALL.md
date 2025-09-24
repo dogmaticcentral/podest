@@ -1,4 +1,4 @@
-# A suggested installation when building from Github repo
+# Installing Podest (from the source repo)
 
 ## Installing poetry
 You can create a `.venv` directory using Python's built-in `venv` module, then install Poetry inside that environment and use it as Poetry's in-project virtual environment directory.
