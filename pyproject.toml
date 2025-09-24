@@ -1,45 +1,15 @@
-[build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
+# note: this toml file is intended for use with poetry, not setuptools
 
-[project]
+[tool.poetry]
 name = "podest"
 version = "0.1.0"
 description = "Point density statistical evaluation for 2D graphs"
-authors = [{name = "Ivana Mihalek", email = "ivana.mihalek@gmail.com"}]
+authors = ["Ivana Mihalek <ivana.mihalek@gmail.com>"] # Poetry's preferred author format
 readme = "README.md"
-license = {file = "LICENSE"}
-requires-python = ">=3.9"
+license = "MIT" # Poetry prefers SPDX identifiers (e.g., "MIT") over {file = "LICENSE"}
 keywords = ["statistics", "density", "2d-analysis", "spatial-analysis"]
 
-dependencies = [
-    "dask>=2021.0.0",
-    "numpy>=1.19.0",
-    "scipy>=1.5.0"
-]
-
-# Optional dependencies for development and testing
-[project.optional-dependencies]
-dev = [
-    "pytest>=6.0",
-    "pytest-cov>=2.0",
-    "black>=21.0",
-    "isort>=5.0",
-    "flake8>=3.8",
-    "mypy>=0.800"
-]
-test = [
-    "pytest>=6.0",
-    "pytest-cov>=2.0"
-]
-docs = [
-    "sphinx>=4.0",
-    "sphinx-rtd-theme>=1.0"
-]
-progress = [
-    "tqdm>=4.50.0"  # For progress bars in parallel computation
-]
-
+# Classifiers belong directly under [tool.poetry]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -55,13 +25,46 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
-[project.urls]
-Homepage = "https://github.com/dogmaticcentral/podest"
-Repository = "https://github.com/dogmaticcentral/podest"
-Issues = "https://github.com/dogmaticcentral/podest/issues"
-Documentation = "https://github.com/dogmaticcentral/podest#readme"
+# URLs like Documentation, Repository, Homepage are often placed directly under [tool.poetry]
+# or sometimes within a [tool.poetry.urls] table for more complex cases.
+documentation = "https://github.com/dogmaticcentral/podest#readme"
+# If you had a repository URL, it would be:
+# repository = "https://github.com/dogmaticcentral/podest"
 
-# Tool configurations
+# Main dependencies go under [tool.poetry.dependencies]
+[tool.poetry.dependencies]
+python = ">=3.9" # Corresponds to "requires-python"
+dask = ">=2021.0.0"
+numpy = ">=1.19.0"
+scipy = ">=1.5.0"
+tqdm = { version = ">=4.50.0", optional = true } # Moved 'progress' here as an optional dependency
+
+
+# Optional dependencies (like 'dev', 'test', 'docs', 'progress') are defined as groups in Poetry
+# [tool.poetry.group.<group_name>.dependencies]
+# 'optional = true' is added if they are truly extras that can be installed by the user,
+# not just development tools. For dev/test, it's often omitted, but for 'progress' it makes sense.
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=6.0"
+pytest-cov = ">=2.0"
+black = ">=21.0"
+isort = ">=5.0"
+flake8 = ">=3.8"
+mypy = ">=0.800"
+
+[tool.poetry.group.test.dependencies]
+# Note: pytest and pytest-cov are also in 'dev'. You might choose to combine 'test' into 'dev'
+# or keep it separate if you have specific reasons for distinct testing environments.
+pytest = ">=6.0"
+pytest-cov = ">=2.0"
+
+[tool.poetry.group.docs.dependencies]
+sphinx = ">=4.0"
+sphinx-rtd-theme = ">=1.0"
+
+
+# Tool configurations remain unchanged as they are already in the [tool] namespace.
 [tool.pytest.ini_options]
 minversion = "6.0"
 addopts = "-ra -q --strict-markers --strict-config"
@@ -82,3 +85,4 @@ python_version = "3.9"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
+
