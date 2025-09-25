@@ -1,4 +1,10 @@
-# Installing Podest (from the source repo)
+# Installing Podest from pip
+
+```bash
+pip install podest
+```
+
+# Installing Podest from the source repo
 
 ## Installing poetry
 You can create a `.venv` directory using Python's built-in `venv` module, then install Poetry inside that environment and use it as Poetry's in-project virtual environment directory.

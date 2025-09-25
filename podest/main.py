@@ -7,11 +7,18 @@ statistical comparisons between different point distributions.
 
 from __future__ import annotations
 
+import os
+
+
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 from scipy.spatial import cKDTree
 import dask
 from dask import delayed
+
+import inspect
+from typing import Callable, Dict, Any
+
 
 
 def _zscore_normalize(x: ArrayLike) -> NDArray[np.float64]:
@@ -182,7 +189,7 @@ def _simulation_task(
         x_alt_generator: callable[..., ArrayLike],
         generator_params: dict[str, any],
         ref_difference: float,
-        seed: int | None = None
+        rng_or_seed: np.random.Generator | int | np.random.SeedSequence | None = None
 ) -> bool:
     """
     Perform a single simulation with an independent RNG instance.
@@ -197,28 +204,37 @@ def _simulation_task(
         Parameters for the generator function.
     ref_difference : float
         Reference difference to compare against.
-    seed : Optional[int]
-        Seed value to initialize an independent RNG stream.
+    rng_or_seed : {numpy.random.Generator, numpy.random.SeedSequence, int, None}, optional
+        Source of randomness. If a `Generator` is provided, it will be used directly
+        (allows reusing the same RNG across multiple calls in a sequential context).
+        If a `SeedSequence` or integer is provided, a new `Generator` will be
+        constructed from it (useful for parallel execution where each task gets an
+        independent seed). If None, a fresh `Generator` seeded from system entropy
+        will be created. Defaults to None.
 
     Returns
     -------
     bool
         Whether the simulated difference exceeds the reference.
     """
-    # Create an independent RNG instance for this task
-    rng = None if seed is None else np.random.default_rng(seed)
     modified_generator_params = generator_params.copy()
+    if rng_or_seed is None:
+        # sequential use: reuse a global or passed-in RNG
+        rng = np.random.default_rng()  # or fall back to a module-level rng
+    elif isinstance(rng_or_seed, (np.random.Generator,)):
+        rng = rng_or_seed
+    else:
+        # assume it’s a SeedSequence or int
+        rng = np.random.default_rng(rng_or_seed)
     modified_generator_params['rng'] = rng
-
     x_alt_simulated = x_alt_generator(**modified_generator_params)
     mean_density, mean_density_simulated = two_scenario_mpd_comparison(
         x, x_alt_simulated, y
     )
     diff = mean_density_simulated - mean_density
-
     return diff > ref_difference
 
-# TODO - make number of cpus an argument
+
 def _two_scenario_p_value_parallel(
         x: ArrayLike,
         x_alt: ArrayLike,
@@ -226,6 +242,7 @@ def _two_scenario_p_value_parallel(
         x_alt_generator: callable[..., ArrayLike],
         generator_params: dict[str, any],
         n_simulations: int = 1000,
+        n_workers: int | None = None,
         base_seed: int = 42,
         verbose: bool = False
 ) -> float:
@@ -246,6 +263,9 @@ def _two_scenario_p_value_parallel(
         Parameters for the generator function.
     n_simulations : int, default=1000
         Number of simulations to run.
+    n_workers : int, default=None
+        Number of worker processes to use. If None, use all available CPU cores.
+        If larger than the available CPU cores, it will be set to the number of available CPU cores.
     base_seed : int, default=42
         Base seed for reproducible independent RNG streams.
     verbose : bool, default=False
@@ -260,39 +280,44 @@ def _two_scenario_p_value_parallel(
     ------
     ValueError
         If n_simulations is not positive.
+        If n_workers is not None and not positive integer.
     """
     if n_simulations <= 0:
         raise ValueError("Number of simulations must be positive")
+
+    if n_workers is not None and (not isinstance(n_workers, int) or n_workers <= 0):
+        raise ValueError("Number of worker must be None or a positive integer")
+
+    # Clamp n_workers to be within the range of available CPUs
+    n_available_cpus = os.cpu_count()
+    if n_workers is None or n_workers > n_available_cpus:
+        n_workers = n_available_cpus
 
     # Calculate reference difference once
     mean_density, mean_density_alt = two_scenario_mpd_comparison(x, x_alt, y)
     ref_difference = mean_density_alt - mean_density
 
-    # Create independent seeds for each simulation
-    seed_seq = np.random.SeedSequence(base_seed)
-    child_seeds = seed_seq.spawn(n_simulations)
-
     # Create delayed tasks for parallel execution
+    ss = np.random.SeedSequence(base_seed)
+    child_seeds = ss.spawn(n_simulations)
     delayed_tasks = [
-        delayed(_simulation_task)(
-            x, y, x_alt_generator, generator_params, ref_difference,
-            seed=int(child_seeds[i].generate_state(1)[0])
-        )
-        for i in range(n_simulations)
+        delayed(_simulation_task)(x, y, x_alt_generator, generator_params, ref_difference, s) for s in child_seeds
     ]
 
     # Compute results in parallel
-    if verbose:
-        try:
-            from tqdm.auto import tqdm
-            with tqdm(total=n_simulations, desc="Simulations") as pbar:
+    # Configure dask to use the specified number of workers
+    with dask.config.set(scheduler='processes', num_workers=n_workers):
+        if verbose:
+            try:
+                from tqdm.auto import tqdm
+                with tqdm(total=n_simulations, desc="Simulations") as pbar:
+                    results = dask.compute(*delayed_tasks, scheduler='processes')
+                    pbar.update(n_simulations)
+            except ImportError:
+                print("tqdm not available, running without progress bar...")
                 results = dask.compute(*delayed_tasks, scheduler='processes')
-                pbar.update(n_simulations)
-        except ImportError:
-            print("tqdm not available, running without progress bar...")
+        else:
             results = dask.compute(*delayed_tasks, scheduler='processes')
-    else:
-        results = dask.compute(*delayed_tasks, scheduler='processes')
 
     # Count occurrences where difference exceeds reference
     number_of_bigger_density_occurrences = sum(results)
@@ -310,6 +335,7 @@ def _two_scenario_p_value_sequential(
         x_alt_generator: callable[..., ArrayLike],
         generator_params: dict[str, any],
         n_simulations: int = 1000,
+        base_seed: int = 42,
         verbose: bool = False
 ) -> float:
     """
@@ -329,6 +355,8 @@ def _two_scenario_p_value_sequential(
         Parameters for the generator function.
     n_simulations : int, default=1000
         Number of simulations to run.
+    base_seed : int, default=42
+        Base seed for reproducible independent RNG streams.
     verbose : bool, default=False
         Whether to print debug information.
 
@@ -347,9 +375,9 @@ def _two_scenario_p_value_sequential(
 
     mean_density, mean_density_alt = two_scenario_mpd_comparison(x, x_alt, y)
     ref_difference = mean_density_alt - mean_density
-
+    rng = np.random.default_rng(base_seed)
     results = [
-        _simulation_task(x, y, x_alt_generator, generator_params, ref_difference, None)
+        _simulation_task(x, y, x_alt_generator, generator_params, ref_difference, rng)
         for _ in range(n_simulations)
     ]
     number_of_bigger_density_occurrences = sum(results)
@@ -359,6 +387,133 @@ def _two_scenario_p_value_sequential(
         print(f"Bigger Density Occurrences: {number_of_bigger_density_occurrences}")
 
     return number_of_bigger_density_occurrences / n_simulations
+
+
+def _validate_generator_rng_compatibility(
+    x_alt_generator: Callable[..., ArrayLike],
+    generator_params: Dict[str, Any],
+):
+    """
+    Validates if x_alt_generator accepts 'rng' as a keyword argument and
+    can be called successfully with a numpy.random.Generator instance.
+
+    Parameters
+    ----------
+    x_alt_generator : Callable
+        The generator function to test.
+    generator_params : Dict[str, Any]
+        A dictionary of parameters typically passed to x_alt_generator,
+        *excluding* 'rng'. These parameters should be enough for a
+        minimal test call.
+
+    Raises
+    ------
+    TypeError
+        If x_alt_generator does not accept 'rng' or encounters type/attribute
+        errors when called with a numpy.random.Generator.
+    RuntimeError
+        For other unexpected errors during the validation call.
+    """
+    # 1. Check if 'rng' is an accepted keyword argument
+    signature = inspect.signature(x_alt_generator)
+    if 'rng' not in signature.parameters:
+        raise TypeError(
+            f"Validation Error: The 'x_alt_generator' function "
+            f"must accept a keyword argument named 'rng'.\n"
+            f"Current signature: {signature}"
+        )
+
+    # 2. Attempt to call the generator with a test RNG
+    test_rng = np.random.default_rng(999) # Use a fixed seed for reproducible test calls
+    test_call_params = generator_params.copy()
+    test_call_params['rng'] = test_rng
+
+    # Add any context-dependent parameters that the generator might need
+    # (e.g., if generator expects `size=len(x)`)
+    # This part might need to be customized based on what your `x_alt_generator`
+    # actually expects in `generator_params`. For instance, if your generator
+    # always needs a 'size' argument, ensure it's in `generator_params`.
+    # As a heuristic, if a generator needs a 'size' argument and often derives it
+    # from 'x', you might temporarily add `size=len(sample_x_for_context)`
+    # to `test_call_params` for the validation. For this general example,
+    # we assume `generator_params` contains what's needed besides `rng`.
+
+    try:
+        # Attempt to run the generator
+        _ = x_alt_generator(**test_call_params)
+    except TypeError as e:
+        # Catch common issues like `rng` being called directly or used with wrong methods
+        if "object is not callable" in str(e) and "rng" in str(e).lower():
+            raise TypeError(
+                f"Validation Error: The 'x_alt_generator' function "
+                f"seems to be treating the 'rng' object as a callable, or otherwise "
+                f"using it in an incompatible way (e.g., `rng()` instead of `rng.normal()`).\n"
+                f"Original error: {e}"
+            ) from e
+        raise TypeError(
+            f"Validation Error: The 'x_alt_generator' function "
+            f"encountered a TypeError when called with a `numpy.random.Generator` "
+            f"instance and the provided parameters. This likely means 'rng' is not "
+            f"used in a way compatible with `numpy.random.Generator` methods "
+            f"(e.g., `rng.uniform()`), or there's an issue with other parameters.\n"
+            f"Original error: {e}"
+        ) from e
+    except AttributeError as e:
+        # Catches cases where `x_alt_generator` tries to access a non-existent method
+        # on the `rng` object (e.g., `rng.some_custom_method()`).
+        raise TypeError(
+            f"Validation Error: The 'x_alt_generator' function "
+            f"attempted to access an unknown method or attribute on the 'rng' object. "
+            f"This indicates that it is not compatible with `numpy.random.Generator` "
+            f"instances (e.g., expecting a custom RNG object).\n"
+            f"Original error: {e}"
+        ) from e
+    except Exception as e:
+        # Catch any other unexpected errors during the test call
+        raise RuntimeError(
+            f"Validation Error: An unexpected error occurred while "
+            f"validating 'x_alt_generator' with an 'rng' argument.\n"
+            f"Original error: {e}"
+        ) from e
+
+    # If we reach here, the basic checks passed. The generator accepts 'rng'
+    # and can be called with a numpy.random.Generator without immediate type/attribute errors.
+    # Deeper validation (e.g., checking if output is truly stochastic) would require
+    # more complex statistical tests, which are usually outside basic argument validation.
+    return
+
+def _sanity_checks(n_cpu, n_simulations, x_alt_generator, generator_params, base_seed, verbose):
+    """ An auxiliary function to improve the readability of two_scenario_p_value() """
+
+    try:
+        _validate_generator_rng_compatibility(x_alt_generator, generator_params)
+    except (TypeError, RuntimeError) as e:
+        # Re-raise the caught exception with the original type and message
+        raise
+
+    if not isinstance(n_cpu, int):
+        raise TypeError(f"n_cpu must be an integer, got {type(n_cpu).__name__}")
+
+    if n_cpu < 1:
+        raise ValueError(f"n_cpu must be at least 1, got {n_cpu}")
+
+    if not isinstance(n_simulations, int):
+        raise TypeError(f"n_simulations must be an integer, got {type(n_simulations).__name__}")
+
+    if n_simulations <= 0:
+        raise ValueError(f"n_simulations must be positive, got {n_simulations}")
+
+    if not callable(x_alt_generator):
+        raise TypeError(f"x_alt_generator must be callable, got {type(x_alt_generator).__name__}")
+
+    if not isinstance(generator_params, dict):
+        raise TypeError(f"generator_params must be a dictionary, got {type(generator_params).__name__}")
+
+    if not isinstance(base_seed, int):
+        raise TypeError(f"base_seed must be an integer, got {type(base_seed).__name__}")
+
+    if not isinstance(verbose, bool):
+        raise TypeError(f"verbose must be a boolean, got {type(verbose).__name__}")
 
 def two_scenario_p_value(
         x: ArrayLike,
@@ -412,17 +567,27 @@ def two_scenario_p_value(
     -------
     float
         P-value as the proportion of simulations where the generated alternative
-        scenario has higher density difference than the observed difference.
+        scenario has a higher density difference than the difference observed.
         Values range from 0.0 to 1.0, where smaller values indicate stronger
         evidence against the null hypothesis.
 
     Raises
     ------
-    ValueError
-        If n_cpu < 1, n_simulations <= 0, or if input arrays have inconsistent
-        dimensions.
-    TypeError
-        If x_alt_generator is not callable or generator_params is not a dictionary.
+    TypeError: If any argument is of an incorrect type:
+        - n_cpu is not an integer
+        - n_simulations is not an integer
+        - x_alt_generator is not callable
+        - generator_params is not a dictionary
+        - base_seed is not an integer
+        - verbose is not a boolean
+    TypeError: If
+        - x_alt_generator does not accept 'rng'
+        - x_alt_generator encounters type/attribute errors when called with a numpy.random.Generator.
+    RuntimeError:
+        - for other unexpected errors during the x_alt_generator validation call.
+    ValueError: If any argument has an invalid value:
+        - n_cpu is less than 1
+        - n_simulations is less than or equal to 0
 
     Notes
     -----
@@ -474,30 +639,12 @@ def two_scenario_p_value(
     two_scenario_p_value_parallel : Parallel implementation
     mean_point_density : Core density calculation function
     """
-    # Input validation with descriptive error messages
-    if not isinstance(n_cpu, int):
-        raise TypeError(f"n_cpu must be an integer, got {type(n_cpu).__name__}")
-
-    if n_cpu < 1:
-        raise ValueError(f"n_cpu must be at least 1, got {n_cpu}")
-
-    if not isinstance(n_simulations, int):
-        raise TypeError(f"n_simulations must be an integer, got {type(n_simulations).__name__}")
-
-    if n_simulations <= 0:
-        raise ValueError(f"n_simulations must be positive, got {n_simulations}")
-
-    if not callable(x_alt_generator):
-        raise TypeError(f"x_alt_generator must be callable, got {type(x_alt_generator).__name__}")
-
-    if not isinstance(generator_params, dict):
-        raise TypeError(f"generator_params must be a dictionary, got {type(generator_params).__name__}")
-
-    if not isinstance(base_seed, int):
-        raise TypeError(f"base_seed must be an integer, got {type(base_seed).__name__}")
-
-    if not isinstance(verbose, bool):
-        raise TypeError(f"verbose must be a boolean, got {type(verbose).__name__}")
+    # Input validation
+    try:
+        _sanity_checks(n_cpu, n_simulations, x_alt_generator, generator_params, base_seed, verbose)
+    except (TypeError, ValueError, RuntimeError) as e:
+        # Re-raise the caught exception with the original type and message
+        raise
 
     # Validate array inputs early (let the underlying functions handle detailed validation)
     try:
@@ -525,6 +672,7 @@ def two_scenario_p_value(
             x_alt_generator=x_alt_generator,
             generator_params=generator_params,
             n_simulations=n_simulations,
+            base_seed=base_seed,
             verbose=verbose
         )
     else:
@@ -536,6 +684,7 @@ def two_scenario_p_value(
             x_alt_generator=x_alt_generator,
             generator_params=generator_params,
             n_simulations=n_simulations,
+            n_workers=n_cpu,
             base_seed=base_seed,
             verbose=verbose
         )
