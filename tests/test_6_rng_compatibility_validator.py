@@ -13,7 +13,7 @@ def good_generator(size: int, rng: np.random.Generator):
     """A valid generator: uses provided rng correctly."""
     return rng.normal(size=size)
 
-def missing_rng(size: int):
+def generator_missing_rng(size: int):
     """Invalid generator: does not accept rng."""
     return np.random.normal(size=size)
 
@@ -29,27 +29,31 @@ def bad_rng_method(size: int, rng: np.random.Generator):
 # -------------------------------------------------------------------
 # Tests
 # -------------------------------------------------------------------
-
+@pytest.mark.run(order=1)
 def test_good_generator_passes():
     params = {"size": 5}
     # Should not raise any error
     _validate_generator_rng_compatibility(good_generator, params)
 
+@pytest.mark.run(order=2)
 def test_missing_rng_argument_raises_typeerror():
     params = {"size": 5}
     with pytest.raises(TypeError, match="must accept a keyword argument named 'rng'"):
-        _validate_generator_rng_compatibility(missing_rng, params)
+        _validate_generator_rng_compatibility(generator_missing_rng, params)
 
+@pytest.mark.run(order=3)
 def test_bad_rng_callable_raises_typeerror():
     params = {"size": 5}
-    with pytest.raises(TypeError, match="could not be called successfully"):
+    with pytest.raises(TypeError, match="object as a callable"):
         _validate_generator_rng_compatibility(bad_rng_callable, params)
 
-def test_bad_rng_method_raises_typeerror():
+@pytest.mark.run(order=4)
+def test_bad_rng_method_raises_attributerror():
     params = {"size": 5}
-    with pytest.raises(TypeError, match="incompatible way"):
+    with pytest.raises(AttributeError, match="unknown method or attribute"):
         _validate_generator_rng_compatibility(bad_rng_method, params)
 
+@pytest.mark.run(order=5)
 def test_good_generator_output_is_deterministic_with_fixed_seed():
     """Even though this is validation, check reproducibility with fixed seed 999."""
     params = {"size": 3}

@@ -409,19 +409,24 @@ def _validate_generator_rng_compatibility(
     Raises
     ------
     TypeError
-        If x_alt_generator does not accept 'rng' or encounters type/attribute
+        If x_alt_generator does not accept 'rng'
+    AttributeError
+        If x_alt_generator encounters type/attribute
         errors when called with a numpy.random.Generator.
     RuntimeError
         For other unexpected errors during the validation call.
     """
     # 1. Check if 'rng' is an accepted keyword argument
     signature = inspect.signature(x_alt_generator)
-    if 'rng' not in signature.parameters:
-        raise TypeError(
-            f"Validation Error: The 'x_alt_generator' function "
-            f"must accept a keyword argument named 'rng'.\n"
-            f"Current signature: {signature}"
-        )
+    try:
+        if 'rng' not in signature.parameters:
+            raise TypeError(
+                f"Validation Error: The 'x_alt_generator' function "
+                f"must accept a keyword argument named 'rng'.\n"
+                f"Current signature: {signature}"
+            )
+    except:
+        raise  # probably not a callable, so does not have a signature
 
     # 2. Attempt to call the generator with a test RNG
     test_rng = np.random.default_rng(999) # Use a fixed seed for reproducible test calls
@@ -443,7 +448,7 @@ def _validate_generator_rng_compatibility(
         _ = x_alt_generator(**test_call_params)
     except TypeError as e:
         # Catch common issues like `rng` being called directly or used with wrong methods
-        if "object is not callable" in str(e) and "rng" in str(e).lower():
+        if "object is not callable" in str(e) or "not a callable object" in str(e): # and "rng" in str(e).lower(): the error msg does not contain the name
             raise TypeError(
                 f"Validation Error: The 'x_alt_generator' function "
                 f"seems to be treating the 'rng' object as a callable, or otherwise "
@@ -461,7 +466,7 @@ def _validate_generator_rng_compatibility(
     except AttributeError as e:
         # Catches cases where `x_alt_generator` tries to access a non-existent method
         # on the `rng` object (e.g., `rng.some_custom_method()`).
-        raise TypeError(
+        raise AttributeError(
             f"Validation Error: The 'x_alt_generator' function "
             f"attempted to access an unknown method or attribute on the 'rng' object. "
             f"This indicates that it is not compatible with `numpy.random.Generator` "
@@ -484,12 +489,6 @@ def _validate_generator_rng_compatibility(
 
 def _sanity_checks(n_cpu, n_simulations, x_alt_generator, generator_params, base_seed, verbose):
     """ An auxiliary function to improve the readability of two_scenario_p_value() """
-
-    try:
-        _validate_generator_rng_compatibility(x_alt_generator, generator_params)
-    except (TypeError, RuntimeError) as e:
-        # Re-raise the caught exception with the original type and message
-        raise
 
     if not isinstance(n_cpu, int):
         raise TypeError(f"n_cpu must be an integer, got {type(n_cpu).__name__}")
@@ -514,6 +513,12 @@ def _sanity_checks(n_cpu, n_simulations, x_alt_generator, generator_params, base
 
     if not isinstance(verbose, bool):
         raise TypeError(f"verbose must be a boolean, got {type(verbose).__name__}")
+
+    try:
+        _validate_generator_rng_compatibility(x_alt_generator, generator_params)
+    except (TypeError, RuntimeError) as e:
+        # Re-raise the caught exception with the original type and message
+        raise
 
 def two_scenario_p_value(
         x: ArrayLike,
@@ -580,9 +585,10 @@ def two_scenario_p_value(
         - generator_params is not a dictionary
         - base_seed is not an integer
         - verbose is not a boolean
-    TypeError: If
-        - x_alt_generator does not accept 'rng'
-        - x_alt_generator encounters type/attribute errors when called with a numpy.random.Generator.
+    TypeError:
+        If x_alt_generator does not accept 'rng'
+    AttributeError
+        If x_alt_generator encounters type/attribute errors when called with a numpy.random.Generator.
     RuntimeError:
         - for other unexpected errors during the x_alt_generator validation call.
     ValueError: If any argument has an invalid value:
@@ -642,7 +648,7 @@ def two_scenario_p_value(
     # Input validation
     try:
         _sanity_checks(n_cpu, n_simulations, x_alt_generator, generator_params, base_seed, verbose)
-    except (TypeError, ValueError, RuntimeError) as e:
+    except (TypeError, ValueError, RuntimeError, AttributeError) as e:
         # Re-raise the caught exception with the original type and message
         raise
 

@@ -213,7 +213,7 @@ def test_mode_selection_consistency():
 
     # Use same seed for reproducible generator
     def x_alt_generator(rng, size=5):
-        return rng.normal(0, 1, size)
+        return rng.normal(0, 1, size)*5
 
     # Sequential mode
     p_val_seq = two_scenario_p_value(
