@@ -2,7 +2,7 @@
 
 [tool.poetry]
 name = "podest"
-version = "0.1.0"
+version = "0.1.1"
 description = "Point density statistical evaluation for 2D graphs"
 authors = ["Ivana Mihalek <ivana.mihalek@gmail.com>"] # Poetry's preferred author format
 readme = "README.md"
@@ -29,12 +29,12 @@ classifiers = [
 # or sometimes within a [tool.poetry.urls] table for more complex cases.
 documentation = "https://github.com/dogmaticcentral/podest#readme"
 # If you had a repository URL, it would be:
-# repository = "https://github.com/dogmaticcentral/podest"
+repository = "https://github.com/dogmaticcentral/podest"
 
 # Main dependencies go under [tool.poetry.dependencies]
 [tool.poetry.dependencies]
 python = ">=3.9" # Corresponds to "requires-python"
-dask = ">=2021.0.0"
+dask = "*"
 numpy = ">=1.19.0"
 scipy = ">=1.5.0"
 tqdm = { version = ">=4.50.0", optional = true } # Moved 'progress' here as an optional dependency

@@ -5,3 +5,4 @@ How to
 1. [Install](doc/INSTALL.md)
 2. [Test](doc/TEST.md)
 3. [Use](doc/USE.md)
+4. [Deploy](doc/DEPLOY.md)
